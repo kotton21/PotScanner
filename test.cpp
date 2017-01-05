@@ -43,6 +43,27 @@ public:
 	float z;
 };
 
+class LinearEqn {
+public:
+	float m;
+	float b;
+
+	LinearEqn(float m, float b)
+			: m(m), b(b) { } // simple constructor
+	LinearEqn(const LinearEqn &eqn)
+		: m(eqn.m), b(eqn.b) { } // copy constructor
+	~LinearEqn() { } // destructor
+
+	float y(float x) {
+		return m*x + b;
+	}
+
+	Point2f Intersection(LinearEqn eqn) {
+		float x = (eqn.b - this->b) / (this->m - eqn.m);
+		float y = this->m*x + this->b;
+		return Point2f(x,y);
+	}
+};
 
 // this accounts to creating a type in order to handle a single variable
 // wouldn't a vector of vectors work just fine?
@@ -58,6 +79,28 @@ public:
 //};
 
 using AnglePointMap = vector<vector<AnglePoint>>;
+
+//a 2d map of any type. must provide own functionality for resizing
+template<typename T>class VectorMap {
+public:
+	vector<vector<T>> vmap;
+	int height;
+	int width;
+
+	VectorMap(int height, int width, T defaultFill) : height(height), width(width) {
+		vmap.reserve(height);
+		for (int h=0; h<height; ++h){
+			vmap.push_back( vector<T>(width, defaultFill));
+		}
+	}
+
+	void set(const int y, const int x, T& pt) {
+		vmap.at(y).at(x) = pt;
+	}
+	T get(const int y, const int x) {
+		return vmap.at(y).at(x);
+	}
+};
 
 
 void dispImage(Mat image) {
@@ -193,7 +236,7 @@ int main( int argc, char** argv ) {
 	apMap.reserve(NUMANGLES);
 
 	float phi = 0;
-	for (int i = 0; i < filenames.size(); ++i) {
+	for (unsigned int i = 0; i < filenames.size(); ++i) {
 		// Region of Interest
 		image = imread( "pics/"+filenames[i], 1 );
 		Mat image_roi(image, Rect(2500, 500, 800, 600)); // x0, y0, w, h
@@ -208,10 +251,26 @@ int main( int argc, char** argv ) {
 
 		apMap.push_back(anglePoints);
 
-		dispEdge(edges, image_roi, CENTERCOL);
+		//dispEdge(edges, image_roi, CENTERCOL);
 	}
 
-	//now have a 2d vector of AnglePoints. Build the map?
+	//now have a 2d vector of AnglePoints. Build the map.
+	//VectorMap considers the texture as rolled off. Need to transpose the AnglePoints.
+	//This is starting to look an awfull lot like i'm just writing a linear algebra library.
+	VectorMap<LinearEqn> eqns (NUMVERTSTEPS, NUMANGLES, LinearEqn(0,0));
+	for (int h=0; h<NUMVERTSTEPS; ++h) {
+		for (int w=0; w<NUMANGLES; ++w) {
+			AnglePoint pt = apMap.at(w).at(h);
+			float m = tan(pt.theta);
+			float b = m*FOCALDIST;
+			LinearEqn thiseqn (m,b);
+			eqns.set(h,w, thiseqn);
+		}
+	}
+
+	//Now have a map of linear equations.. no obvious float range problems so far.
+	//Build Intersection Points? Can I do this in the existing map?
+	//Give LinearEqn knowledge of its adjacent item?
 
 //	dispEdge(edges, image_roi, centerCol);
 //	Mat clipped;
@@ -221,61 +280,4 @@ int main( int argc, char** argv ) {
 
 	return 0;
 }
-
-
-//	Mat clipped;
-//	inRange(hsv, Scalar(10, 100, 100), Scalar(15,255,255), clipped);
-//
-//	dispImage(clipped);
-
-//	namedWindow( "Display Image", CV_WINDOW_AUTOSIZE );
-//	imshow( "Display Image", image );
-//	waitKey(0);
-
-
-//	Size ms = image.size();
-//	int h = ms.height;
-//	int w = ms.width;
-//
-//	cout << image.rows << endl;
-//	cout << "w " << w << " h " << h << endl;
-	//	cout << hsv.type() << endl;
-	//	Vec3b pt = hsv.at<Vec3b>(100,100);
-	//	cout << int(pt.val[0]) << ", " << int(pt.val[1]) << ", " << int(pt.val[2]) << endl;
-	//	cout << pt << endl;
-
-/*
-
-def hsv(rgb):
-    return colorsys.rgb_to_hsv(rgb[0], rgb[1], rgb[2])
-
-r=h/2
-blue=[]
-for j in range(w):
-    pi=r*h+j    #index
-    p=d[pi]    #pixel value
-    p_hsv = hsv(p)
-    if (p[2] > 100 and p[0]<100 and p[1]<100):
-        print pi,p
-        blue.append(pi)
-        print "hsv", hsv(p)
-
-#bad. rrconvert to hsv first. need opencv?
-#then set b and w thresholds on the row you want
-#set to 0 if not blue?
-#record min and max pixel width where within threshold
-
-
-print len(blue)
-print w
-
-
-#loop over each row number
-
-#def GetEdgePixel(frame, rowNumber)
-
-#def GetThetaC(pixelCenter, pixelDensity, pixelEdge, focalDist, ...):
-
-#def
-*/
 
