@@ -93,6 +93,7 @@ public:
 			vmap.push_back( vector<T>(width, defaultFill));
 		}
 	}
+//	VectorMap(&VectorMap obj) : VectorMap(obj.height, obj.width, ) { }
 
 	void set(const int y, const int x, T& pt) {
 		vmap.at(y).at(x) = pt;
@@ -100,7 +101,22 @@ public:
 	T get(const int y, const int x) {
 		return vmap.at(y).at(x);
 	}
+	void doFunc(void (*func)(VectorMap&, VectorMap&, int, int), VectorMap& toMap) { //B //
+		for (int h=0; h < height; ++h) {
+			for (int w=0; w < width; ++w) {
+				func(*this,toMap,h,w); //
+			}
+		}
+	}
 };
+
+void funcDoIntersections(VectorMap<LinearEqn>& from, VectorMap<Point2f>& to, int h, int w) { // to
+	LinearEqn curr = from.get(h,w);
+	LinearEqn next = from.get(h,(w+1)%from.width);
+
+	Point2f intersection = curr.Intersection(next);
+	to.set(h,w,intersection);
+}
 
 
 void dispImage(Mat image) {
@@ -271,6 +287,9 @@ int main( int argc, char** argv ) {
 	//Now have a map of linear equations.. no obvious float range problems so far.
 	//Build Intersection Points? Can I do this in the existing map?
 	//Give LinearEqn knowledge of its adjacent item?
+	VectorMap<Point2f> intersections (NUMVERTSTEPS, NUMANGLES, Point2f(0,0));;
+	eqns.doFunc(&funcDoIntersections, intersections); //;, intersections
+
 
 //	dispEdge(edges, image_roi, centerCol);
 //	Mat clipped;
