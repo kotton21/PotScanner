@@ -101,21 +101,39 @@ public:
 	T get(const int y, const int x) {
 		return vmap.at(y).at(x);
 	}
-	void doFunc(void (*func)(VectorMap&, VectorMap&, int, int), VectorMap& toMap) { //B //
-		for (int h=0; h < height; ++h) {
-			for (int w=0; w < width; ++w) {
-				func(*this,toMap,h,w); //
-			}
-		}
-	}
+//	void doFunc(VectorMap<Point2f>& toMap, void (*func)(VectorMap&, VectorMap&, int, int) ) { //B //
+//		for (int h=0; h < height; ++h) {
+//			for (int w=0; w < width; ++w) {
+//				func(*this,toMap,h,w); //
+//			}
+//		}
+//	}
 };
 
-void funcDoIntersections(VectorMap<LinearEqn>& from, VectorMap<Point2f>& to, int h, int w) { // to
-	LinearEqn curr = from.get(h,w);
-	LinearEqn next = from.get(h,(w+1)%from.width);
+//void funcDoIntersections(VectorMap<LinearEqn>& from, VectorMap<Point2f>& to, int h, int w) { // to
+//	LinearEqn curr = from.get(h,w);
+//	LinearEqn next = from.get(h,(w+1)%from.width);
+//
+//	Point2f intersection = curr.Intersection(next);
+//	to.set(h,w,intersection);
+//}
 
-	Point2f intersection = curr.Intersection(next);
-	to.set(h,w,intersection);
+void DoIntersection(VectorMap<LinearEqn>& from, VectorMap<Point2f>& to) {
+	LinearEqn curr (0,0);
+	LinearEqn next (0,0);
+	for (int h=0; h < from.height; ++h) {
+		for (int w=0; w < from.width; ++w) {
+			curr = from.get(h,w);
+			next = from.get(h,(w+1)%from.width);
+
+			Point2f intersection = curr.Intersection(next);
+			to.set(h,w,intersection);
+		}
+	}
+}
+
+void DoMidpoints(VectorMap<Point2f>& from, VectorMap<Point2f>& to) {
+
 }
 
 
@@ -288,7 +306,11 @@ int main( int argc, char** argv ) {
 	//Build Intersection Points? Can I do this in the existing map?
 	//Give LinearEqn knowledge of its adjacent item?
 	VectorMap<Point2f> intersections (NUMVERTSTEPS, NUMANGLES, Point2f(0,0));;
-	eqns.doFunc(&funcDoIntersections, intersections); //;, intersections
+	//Beqns.doFunc(intersections, &funcDoIntersections); //;, intersections
+	DoIntersection(eqns, intersections);
+
+	VectorMap<Point2f> midpoints (NUMVERTSTEPS, NUMANGLES, Point2f(0,0));;
+	DoMidpoints(intersections, midpoints);
 
 
 //	dispEdge(edges, image_roi, centerCol);
