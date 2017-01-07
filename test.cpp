@@ -30,6 +30,7 @@ public:
 		this->x = x;
 		this->y = y;
 	}
+	ImagePoint(const ImagePoint& obj) : ImagePoint(obj.x, obj.y) { }
 };
 
 //points in theta, phi, z.
@@ -43,25 +44,28 @@ public:
 	float z;
 };
 
+//Converted to 3d
 class LinearEqn {
 public:
 	float m;
 	float b;
+	float z;
 
-	LinearEqn(float m, float b)
-			: m(m), b(b) { } // simple constructor
+	LinearEqn(float m, float b, float z)
+			: m(m), b(b), z(z) { } // simple constructor
 	LinearEqn(const LinearEqn &eqn)
-		: m(eqn.m), b(eqn.b) { } // copy constructor
+		: m(eqn.m), b(eqn.b), z(eqn.z) { } // copy constructor
 	~LinearEqn() { } // destructor
 
 	float y(float x) {
 		return m*x + b;
 	}
 
-	Point2f Intersection(LinearEqn eqn) {
+	// Ignores potential z-height errors..
+	Point3f Intersection(LinearEqn eqn) {
 		float x = (eqn.b - this->b) / (this->m - eqn.m);
 		float y = this->m*x + this->b;
-		return Point2f(x,y);
+		return Point3f(x,y,z);
 	}
 };
 
@@ -98,7 +102,7 @@ public:
 	void set(const int y, const int x, T& pt) {
 		vmap.at(y).at(x) = pt;
 	}
-	T get(const int y, const int x) {
+	T get(const int y, const int x) const {
 		return vmap.at(y).at(x);
 	}
 //	void doFunc(VectorMap<Point2f>& toMap, void (*func)(VectorMap&, VectorMap&, int, int) ) { //B //
@@ -118,22 +122,34 @@ public:
 //	to.set(h,w,intersection);
 //}
 
-void DoIntersection(VectorMap<LinearEqn>& from, VectorMap<Point2f>& to) {
-	LinearEqn curr (0,0);
-	LinearEqn next (0,0);
+void DoIntersection(VectorMap<LinearEqn>& from, VectorMap<Point3f>& to) {
+	LinearEqn curr (0,0,0);
+	LinearEqn next (0,0,0);
 	for (int h=0; h < from.height; ++h) {
 		for (int w=0; w < from.width; ++w) {
 			curr = from.get(h,w);
 			next = from.get(h,(w+1)%from.width);
 
-			Point2f intersection = curr.Intersection(next);
+			Point3f intersection = curr.Intersection(next);
 			to.set(h,w,intersection);
 		}
 	}
 }
 
-void DoMidpoints(VectorMap<Point2f>& from, VectorMap<Point2f>& to) {
+void DoMidpoints(VectorMap<Point3f>& from, VectorMap<Point3f>& to) {
+	Point3f curr (0,0,0);
+	Point3f next (0,0,0);
+	for (int h=0; h < from.height; ++h) {
+		for (int w=0; w < from.width; ++w) {
+			curr = from.get(h,w);
+			next = from.get(h,(w+1)%from.width);
 
+			Point3f midpoint = Point3f( (curr.x + next.x)/2,
+					(curr.y + next.y)/2,
+					(curr.z + next.z)/2);
+			to.set(h,w,midpoint);
+		}
+	}
 }
 
 
@@ -251,12 +267,92 @@ vector<AnglePoint> getThetas(const vector<ImagePoint> edges, const float focalDi
 //	return NOT_FOUND;
 //}
 
+//generates two triangle verts and indices for each square.
+//essentially translates the 2d Vertex matrix into a 1D matrix + index values.
+void ComputeRadialTrisVerts(VectorMap<Point3f>& pts, Vector<Point3f>& verts, Vector<Point3i>& tris) {
+//	Point3f pt1 (0,0,0);
+//	Point3f pt2 (0,0,0);
+//	Point3f pt3 (0,0,0);
+//	Point3f pt4 (0,0,0);
+
+	//add each point to verts for each itteration.
+	for (int h=0; h < pts.height; ++h) {
+		for (int w=0; w < pts.width; ++w) {
+			verts.push_back(pts.get(h,w));
+		}
+	}
+
+	//height levels first...
+	for (int h=0; h < pts.height-1; ++h) {
+		for (int w=0; w < pts.width; ++w) {
+//			pt1 = pts.get(h,w); 					//top left
+//			pt2 = pts.get(h,(w+1)%pts.width);		//top right, width wraps around object
+//			pt3 = pts.get(h+1,w);					//bottom left
+//			pt4 = pts.get(h+1,(w+1)%pts.width);		//bottom right, width wraps around object
+
+			int i1 = (h*pts.height)+w;						//top left
+			int i2 = (h*pts.height)+((w+1)%pts.width);		//top right, width wraps around object
+			int i3 = ((h+1)*pts.height)+w;					//bottom left
+			int i4 = ((h+1)*pts.height)+((w+1)%pts.width);	//bottom right, width wraps around object
+
+			//add 3 verts for each triangle
+			tris.push_back(Point3i(i1,i2,i3));
+			tris.push_back(Point3i(i2,i4,i3));
+		}
+	}
+}
+
+#include <iostream>
+#include <fstream>
+#include <ctime>
+
+using std::ofstream;
+
+void WriteVerts(Vector<Point3f>& verts, ofstream& out) {
+	for (auto vert: verts) {
+		out << "v " << vert.x << " " << vert.y << " " << vert.z << "\n";
+	}
+}
+
+void WriteTris(Vector<Point3i>& tris, ofstream& out) {
+	for (auto tri: tris) {
+		out << "f " << tri.x << " " << tri.y << " " << tri.z << "\n";
+	}
+}
+
+int write (string filename, string desc, Vector<Point3f>& verts, Vector<Point3i>& tris) {
+  ofstream myfile;
+  myfile.open (filename);
+
+  //write header:
+  time_t t = time(0);
+  struct tm * now = localtime( & t );
+      cout << (now->tm_year + 1900) << '-'
+           << (now->tm_mon + 1) << '-'
+           <<  now->tm_mday
+           << endl;
+
+  myfile << "Filename: " << filename << "\n";
+  myfile << "Date: " << (now->tm_year + 1900) << '-'
+          << (now->tm_mon + 1) << '-'
+          <<  now->tm_mday << "\n";
+  myfile << "Description: " << desc << "\n\n";
+
+  //write tris and verts
+  WriteVerts(verts,myfile);
+  myfile << "\n";
+  WriteTris(tris,myfile);
+
+  myfile.close();
+  return 0;
+}
+
 
 int main( int argc, char** argv ) {
 
-	vector<string> filenames = {"0.jpg"}; //, "30.jpg", "60.jpg",
-//			"90.jpg", "120.jpg", "150.jpg",
-//			"240.jpg", "270.jpg", "300.jpg", "330.jpg"};
+	vector<string> filenames = {"0.jpg", "30.jpg", "60.jpg",
+			"90.jpg", "120.jpg", "150.jpg",
+			"240.jpg", "270.jpg", "300.jpg", "330.jpg"};
 
 	Mat image;
 	//image = imread( argv[1], 1 );
@@ -266,7 +362,7 @@ int main( int argc, char** argv ) {
 	int NUMVERTSTEPS = 10;
 	float FOCALDIST = 200;
 
-	AnglePointMap apMap;
+	AnglePointMap apMap; //used because I don't know how big this is??
 	apMap.reserve(NUMANGLES);
 
 	float phi = 0;
@@ -287,31 +383,43 @@ int main( int argc, char** argv ) {
 
 		//dispEdge(edges, image_roi, CENTERCOL);
 	}
+	//VectorMap<ImagePoint> edgesMap (NUMVERTSTEPS, NUMANGLES, ImagePoint(0,0));
+	//cout << "NumVertSteps: " << NUMVERTSTEPS << " " << apMap.size() << endl;
+	//cout << "NUMANGLES: " << NUMANGLES << " " << apMap.at(0).size() << endl;
+
 
 	//now have a 2d vector of AnglePoints. Build the map.
 	//VectorMap considers the texture as rolled off. Need to transpose the AnglePoints.
 	//This is starting to look an awfull lot like i'm just writing a linear algebra library.
-	VectorMap<LinearEqn> eqns (NUMVERTSTEPS, NUMANGLES, LinearEqn(0,0));
+	VectorMap<LinearEqn> eqns (NUMVERTSTEPS, NUMANGLES, LinearEqn(0,0,0));
 	for (int h=0; h<NUMVERTSTEPS; ++h) {
 		for (int w=0; w<NUMANGLES; ++w) {
 			AnglePoint pt = apMap.at(w).at(h);
 			float m = tan(pt.theta);
 			float b = m*FOCALDIST;
-			LinearEqn thiseqn (m,b);
-			eqns.set(h,w, thiseqn);
+			LinearEqn thiseqn (m,b,pt.z);
+			eqns.set(h, w, thiseqn);
 		}
 	}
 
 	//Now have a map of linear equations.. no obvious float range problems so far.
 	//Build Intersection Points? Can I do this in the existing map?
 	//Give LinearEqn knowledge of its adjacent item?
-	VectorMap<Point2f> intersections (NUMVERTSTEPS, NUMANGLES, Point2f(0,0));;
+	VectorMap<Point3f> intersections (NUMVERTSTEPS, NUMANGLES, Point3f(0,0,0));;
 	//Beqns.doFunc(intersections, &funcDoIntersections); //;, intersections
 	DoIntersection(eqns, intersections);
 
-	VectorMap<Point2f> midpoints (NUMVERTSTEPS, NUMANGLES, Point2f(0,0));;
+	VectorMap<Point3f> midpoints (NUMVERTSTEPS, NUMANGLES, Point3f(0,0,0));;
 	DoMidpoints(intersections, midpoints);
 
+
+	//compute
+	Vector<Point3f> verts;
+	Vector<Point3i> tris;
+	ComputeRadialTrisVerts(midpoints, verts, tris);
+
+	//write to file
+	write ("out.obj", "test cylinders", verts, tris);
 
 //	dispEdge(edges, image_roi, centerCol);
 //	Mat clipped;
