@@ -67,6 +67,18 @@ public:
 		float y = this->m*x + this->b;
 		return Point3f(x,y,z);
 	}
+
+	void Rotate(const float phiRad) {
+		float mp = this->m + phiRad;
+
+		float xp = -this->b*sin(phiRad);
+		float yp =  this->b*cos(phiRad);
+
+		float bp = yp-mp*xp;
+
+		this->m = mp;
+		this->b = bp;
+	}
 };
 
 // this accounts to creating a type in order to handle a single variable
@@ -188,7 +200,9 @@ vector<ImagePoint> detectEdges(const Mat hsv, const int NUMVERTSTEPS, const int 
 	int r = 0, i = 0;
 	while (r < hsv.rows) {
 		bool found = false;
-		for (int c=0; c < hsv.cols; c++) {
+		//for (int c=0; c < hsv.cols; c++) {
+		// don't look any farther than center column
+		for (int c=0; c < CENTERCOL; c++) {
 			//hue from 205-265, saturation > 50%, value > 30% ?
 			Vec3b pt = hsv.at<Vec3b>(r,c);
 
@@ -197,7 +211,7 @@ vector<ImagePoint> detectEdges(const Mat hsv, const int NUMVERTSTEPS, const int 
 					int(pt.val[1]) > 125 &&
 					int(pt.val[2]) > 100) {
 				//save point
-				ImagePoint vert (c,r);
+				ImagePoint vert (CENTERCOL - c,r);
 				edges.push_back(vert);
 				//edges.at<Point>(i) = vert;
 
@@ -206,7 +220,7 @@ vector<ImagePoint> detectEdges(const Mat hsv, const int NUMVERTSTEPS, const int 
 				break;
 			}
 		}
-		if (!found) { edges.push_back(ImagePoint(CENTERCOL,r)); }
+		if (!found) { edges.push_back(ImagePoint(0,r)); }
 
 		i = i + 1;
 		r = r + pixelstep;
@@ -269,7 +283,7 @@ vector<AnglePoint> getThetas(const vector<ImagePoint> edges, const float focalDi
 
 //generates two triangle verts and indices for each square.
 //essentially translates the 2d Vertex matrix into a 1D matrix + index values.
-void ComputeRadialTrisVerts(VectorMap<Point3f>& pts, Vector<Point3f>& verts, Vector<Point3i>& tris) {
+void OrientRadialTrisVerts(VectorMap<Point3f>& pts, Vector<Point3f>& verts, Vector<Point3i>& tris) {
 //	Point3f pt1 (0,0,0);
 //	Point3f pt2 (0,0,0);
 //	Point3f pt3 (0,0,0);
@@ -296,8 +310,8 @@ void ComputeRadialTrisVerts(VectorMap<Point3f>& pts, Vector<Point3f>& verts, Vec
 			int i4 = ((h+1)*pts.height)+((w+1)%pts.width);	//bottom right, width wraps around object
 
 			//add 3 verts for each triangle
-			tris.push_back(Point3i(i1,i2,i3));
-			tris.push_back(Point3i(i2,i4,i3));
+			tris.push_back(Point3i(i1,i3,i2));
+			tris.push_back(Point3i(i2,i3,i4));
 		}
 	}
 }
@@ -308,9 +322,9 @@ void ComputeRadialTrisVerts(VectorMap<Point3f>& pts, Vector<Point3f>& verts, Vec
 
 using std::ofstream;
 
-void WriteVerts(Vector<Point3f>& verts, ofstream& out) {
+void WriteVerts(Vector<Point3f>& verts, ofstream& out, float s) {
 	for (auto vert: verts) {
-		out << "v " << vert.x << " " << vert.y << " " << vert.z << "\n";
+		out << "v " << vert.x*s << " " << vert.y*s << " " << vert.z*s << "\n";
 	}
 }
 
@@ -320,7 +334,7 @@ void WriteTris(Vector<Point3i>& tris, ofstream& out) {
 	}
 }
 
-int write (string filename, string desc, Vector<Point3f>& verts, Vector<Point3i>& tris) {
+int write (string filename, string desc, Vector<Point3f>& verts, Vector<Point3i>& tris, float s) {
   ofstream myfile;
   myfile.open (filename);
 
@@ -339,7 +353,7 @@ int write (string filename, string desc, Vector<Point3f>& verts, Vector<Point3i>
   myfile << "Description: " << desc << "\n\n";
 
   //write tris and verts
-  WriteVerts(verts,myfile);
+  WriteVerts(verts,myfile,s);
   myfile << "\n";
   WriteTris(tris,myfile);
 
@@ -360,7 +374,7 @@ int main( int argc, char** argv ) {
 	int CENTERCOL = 417; //user input or determined by machine architecture
 	int NUMANGLES = filenames.size();
 	int NUMVERTSTEPS = 10;
-	float FOCALDIST = 200;
+	float FOCALDIST = 2000;
 
 	AnglePointMap apMap; //used because I don't know how big this is??
 	apMap.reserve(NUMANGLES);
@@ -376,7 +390,8 @@ int main( int argc, char** argv ) {
 		//Mat edges = detectEdges(hsv);
 		vector<ImagePoint> edges = detectEdges(hsv, NUMVERTSTEPS, CENTERCOL);
 
-		vector<AnglePoint> anglePoints = getThetas(edges, FOCALDIST, phi);
+		vector<AnglePoint> anglePoints;
+		anglePoints = getThetas(edges, FOCALDIST, phi);
 		phi = phi + 30.0;
 
 		apMap.push_back(anglePoints);
@@ -398,9 +413,15 @@ int main( int argc, char** argv ) {
 			float m = tan(pt.theta);
 			float b = m*FOCALDIST;
 			LinearEqn thiseqn (m,b,pt.z);
+
+			//rotate the equation about the origin...
+			//actually rotate the points, then build the equation.
+			thiseqn.Rotate(pt.phi * PI / 180);
+
 			eqns.set(h, w, thiseqn);
 		}
 	}
+	// where is the angle phi incorporated??
 
 	//Now have a map of linear equations.. no obvious float range problems so far.
 	//Build Intersection Points? Can I do this in the existing map?
@@ -416,10 +437,10 @@ int main( int argc, char** argv ) {
 	//compute
 	Vector<Point3f> verts;
 	Vector<Point3i> tris;
-	ComputeRadialTrisVerts(midpoints, verts, tris);
+	OrientRadialTrisVerts(midpoints, verts, tris);
 
 	//write to file
-	write ("out.obj", "test cylinders", verts, tris);
+	write ("out.obj", "test cylinders", verts, tris, 1./300.);
 
 //	dispEdge(edges, image_roi, centerCol);
 //	Mat clipped;
